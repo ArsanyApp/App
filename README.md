@@ -20,6 +20,8 @@ It works through an **AccessibilityService**:
 | `macro-player` | Pure Kotlin/JVM | `MacroPlayer`: loops, pause/resume, time limit, "wait for text" timeout policies, run log. It talks to the device only through the `ActionExecutor` interface |
 | `gesture-engine` | Android library | `ActionExecutor` built on `AccessibilityService`: `GestureFactory`, `GestureDispatcher`, `NodeFinder`, `TextInjector`, `AppLauncher`, `ClickRecorder` |
 | `overlay-ui` | Android library | Floating `ControlBubble`, `MarkerEditor` (toolbar and draggable numbered crosshairs), `TextPrompt` |
+| `license-core` | Pure Kotlin/JVM | Licensing: activation-code format, signed-token verification, offline-grace policy, activation/heartbeat controller |
+| `license-server` | Cloudflare Worker + D1 | License server and owner admin page (see [license-server/README.md](license-server/README.md)) |
 | `app` | Android app | Compose UI (macro list, editor, logs, saved texts, setup), Room database, `AutoTapAccessibilityService`, `PlaybackService` (foreground service) |
 
 The model and player have no Android dependencies, so their unit tests run on a plain JVM.
@@ -33,6 +35,19 @@ The model and player have no Android dependencies, so their unit tests run on a 
 
 Every push also runs the GitHub Actions workflow in `.github/workflows/android.yml`, which runs the tests
 and uploads a debug APK as a build artifact.
+
+## Licensing
+
+On first launch, each copy of the app must be activated with a one-time code such as `CAT-7K4P-X92M-Q3TD`.
+You generate codes on your own admin page.
+- A code works on one installation only. Anyone else who enters it sees "Activation code already used."
+- You can revoke a license at any time.
+- After each successful check, the app keeps working offline for up to 7 days.
+
+Server setup, deployment, generating codes and revoking licenses are covered step by step in
+**[license-server/README.md](license-server/README.md)**. The APK is pointed at your server through
+the GitHub Actions variables `LICENSE_API_URL` and `LICENSE_PUBLIC_KEY`. For a local build, pass
+`-PlicenseApiUrl=... -PlicensePublicKey=...` to Gradle or set them as environment variables.
 
 ## Enable permissions
 

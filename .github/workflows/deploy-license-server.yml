@@ -1,0 +1,103 @@
+name: Deploy license server
+
+# Run manually: Actions → "Deploy license server" → Run workflow.
+# Needs these repository secrets (Settings → Secrets and variables → Actions → Secrets):
+#   CLOUDFLARE_API_TOKEN   token with "Workers Scripts: Edit" and "D1: Edit" permissions
+#   CLOUDFLARE_ACCOUNT_ID  your Cloudflare account id
+#   LICENSE_SIGNING_KEY, LICENSE_CODE_KEY, ADMIN_TOKEN   from license-server/tools/keygen.html
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-license-server
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: license-server
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: license-server/package-lock.json
+
+      - name: Check required secrets
+        env:
+          S1: ${{ secrets.LICENSE_SIGNING_KEY }}
+          S2: ${{ secrets.LICENSE_CODE_KEY }}
+          S3: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          missing=0
+          for v in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID S1 S2 S3; do
+            if [ -z "${!v}" ]; then echo "::error::Missing repository secret ($v). See license-server/README.md"; missing=1; fi
+          done
+          exit $missing
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Create or find the D1 database
+        run: |
+          set -euo pipefail
+          NAME=choice-auto-tap-licenses
+          ID=$(npx wrangler d1 list --json | python3 -c "import json,sys; print(next((d['uuid'] for d in json.load(sys.stdin) if d['name']=='$NAME'), ''))")
+          if [ -z "$ID" ]; then
+            npx wrangler d1 create "$NAME"
+            ID=$(npx wrangler d1 list --json | python3 -c "import json,sys; print(next(d['uuid'] for d in json.load(sys.stdin) if d['name']=='$NAME'))")
+          fi
+          echo "D1 database id: $ID"
+          sed -i "s/^database_id = .*/database_id = \"$ID\"/" wrangler.toml
+
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply DB --remote
+
+      - name: Deploy Worker
+        run: |
+          set -euo pipefail
+          npx wrangler deploy | tee deploy.log
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          echo "WORKER_URL=$URL" >> "$GITHUB_ENV"
+
+      - name: Set Worker secrets
+        env:
+          LICENSE_SIGNING_KEY: ${{ secrets.LICENSE_SIGNING_KEY }}
+          LICENSE_CODE_KEY: ${{ secrets.LICENSE_CODE_KEY }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 - > secrets.json <<'EOF'
+          import json, os
+          print(json.dumps({k: os.environ[k] for k in ("LICENSE_SIGNING_KEY", "LICENSE_CODE_KEY", "ADMIN_TOKEN")}))
+          EOF
+          npx wrangler secret bulk secrets.json
+          rm -f secrets.json
+
+      - name: Verify the deployment
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$WORKER_URL"
+          for i in $(seq 1 20); do curl -fsS "$WORKER_URL/api/health" && break; sleep 3; done
+          code=$(curl -s -o /dev/null -w '%{http_code}' -H "authorization: Bearer $ADMIN_TOKEN" "$WORKER_URL/api/admin/licenses")
+          test "$code" = 200 || { echo "::error::Admin API returned $code"; exit 1; }
+          bad=$(curl -s -o /dev/null -w '%{http_code}' "$WORKER_URL/api/admin/licenses")
+          test "$bad" = 401 || { echo "::error::Admin API without token returned $bad"; exit 1; }
+          {
+            echo "## License server deployed"
+            echo "- Worker URL: $WORKER_URL"
+            echo "- Admin page: $WORKER_URL/admin"
+            echo "- Set the repository variable LICENSE_API_URL to: $WORKER_URL"
+          } >> "$GITHUB_STEP_SUMMARY"

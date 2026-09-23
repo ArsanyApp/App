@@ -10,8 +10,38 @@ permissions:
 
 env:
   APK_NAME: ChoiceAutoTap-debug.apk
+  WRANGLER_SEND_METRICS: "false"
 
 jobs:
+  # Cloudflare Worker: typecheck, unit/service tests on a real local D1, bundle, HTTP end-to-end A–F.
+  worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: license-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: license-server/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Worker tests
+        run: npm test
+      - name: Build Worker bundle
+        run: npm run build
+      - name: End-to-end A–F against the running Worker (workerd + D1)
+        run: |
+          scripts/local-server.sh start
+          set -a; . .e2e/env; set +a
+          node --test test/e2e.test.mjs
+      - if: always()
+        run: scripts/local-server.sh stop
+
+  # JVM tests (incl. the Kotlin client against the real Worker) + the distributable APK.
   build:
     runs-on: ubuntu-latest
     steps:
@@ -24,15 +54,42 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: license-server/package-lock.json
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Unit tests
-        run: ./gradlew test --stacktrace
+      - name: Start local license server for the Kotlin end-to-end test
+        working-directory: license-server
+        run: |
+          npm ci
+          scripts/local-server.sh start
+          cat .e2e/env | grep -v ADMIN_TOKEN
 
-      - name: Build debug APK
+      - name: Unit tests (macro model, player, licensing, strings)
+        run: |
+          set -a; . license-server/.e2e/env; set +a
+          ./gradlew test --stacktrace
+          python3 - <<'EOF'
+          import glob, re
+          total = failed = skipped = 0
+          for p in glob.glob("**/build/test-results/**/*.xml", recursive=True):
+              m = re.search(r'tests="(\d+)" skipped="(\d+)" failures="(\d+)" errors="(\d+)"', open(p).read())
+              total += int(m[1]); skipped += int(m[2]); failed += int(m[3]) + int(m[4])
+          print(f"JVM test cases executed: {total}, failed: {failed}, skipped: {skipped}")
+          EOF
+
+      - name: Build debug APK (configured from repository variables)
+        env:
+          LICENSE_API_URL: ${{ vars.LICENSE_API_URL }}
+          LICENSE_PUBLIC_KEY: ${{ vars.LICENSE_PUBLIC_KEY }}
         run: ./gradlew clean :app:assembleDebug --stacktrace
 
       - name: Verify APK
+        env:
+          LICENSE_API_URL: ${{ vars.LICENSE_API_URL }}
         run: |
           set -euo pipefail
           SRC=$(ls app/build/outputs/apk/debug/*.apk)
@@ -45,18 +102,23 @@ jobs:
             ls -l "$APK_NAME"
             file "$APK_NAME"
             sha256sum "$APK_NAME"
+            echo "License server URL built in: ${LICENSE_API_URL:-<not configured>}"
             echo
-            "$BT/aapt2" dump badging "$APK_NAME" | grep -E "^(package|sdkVersion|targetSdkVersion|application-label|launchable-activity|uses-permission)"
+            "$BT/aapt2" dump badging "$APK_NAME" | grep -E "^(package|minSdkVersion|sdkVersion|targetSdkVersion|launchable-activity|uses-permission)"
             echo
-            "$BT/apksigner" verify --verbose --print-certs "$APK_NAME" | head -20
+            "$BT/apksigner" verify --verbose --print-certs "$APK_NAME" | head -8
             echo
             echo "App classes in dex:"
-            unzip -p "$APK_NAME" 'classes*.dex' | grep -a -o -E "Lcom/choice/autotap/(ui/MainActivity|service/AutoTapAccessibilityService|service/PlaybackService|gesture/AccessibilityActionExecutor|overlay/ControlBubble|player/MacroPlayer|model/Macro);" | sort -u
+            unzip -p "$APK_NAME" 'classes*.dex' | grep -a -o -E "Lcom/choice/autotap/(ui/MainActivity|service/AutoTapAccessibilityService|service/PlaybackService|gesture/AccessibilityActionExecutor|overlay/ControlBubble|player/MacroPlayer|model/Macro|license/LicenseController|license/AndroidLicenseStore|license/LicenseTokenVerifier);" | sort -u
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
           test -s "$APK_NAME"
           "$BT/aapt2" dump badging "$APK_NAME" | grep -q "package: name='com.choice.autotap'"
           "$BT/apksigner" verify "$APK_NAME"
+          # No server secret may ever end up in the APK.
+          if unzip -p "$APK_NAME" | grep -a -q -E "LICENSE_SIGNING_KEY|LICENSE_CODE_KEY|ADMIN_TOKEN|BEGIN PRIVATE KEY"; then
+            echo "Server secret material found in APK"; exit 1
+          fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -64,20 +126,58 @@ jobs:
           path: ${{ env.APK_NAME }}
           if-no-files-found: error
 
+      - if: always()
+        working-directory: license-server
+        run: scripts/local-server.sh stop
+
+  # Existing launch smoke test + the full licensing scenario on an Android emulator.
   emulator-test:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: license-server/package-lock.json
+      - uses: gradle/actions/setup-gradle@v4
       - uses: actions/download-artifact@v4
         with:
           name: choice-auto-tap-debug-apk
+
+      - name: Start the real license Worker locally (throwaway keys)
+        working-directory: license-server
+        run: |
+          npm ci
+          scripts/local-server.sh start
+
+      - name: Build end-to-end APKs pointed at the local Worker (http://10.0.2.2:8787 from the emulator)
+        run: |
+          set -a; . license-server/.e2e/env; set +a
+          ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest \
+            -PlicenseApiUrl=http://10.0.2.2:8787 \
+            -PlicensePublicKey="$LICENSE_PUBLIC_KEY" \
+            -PlicenseAllowInsecure=true
+          cp app/build/outputs/apk/debug/app-debug.apk e2e-app.apk
+          cp app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk e2e-test.apk
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Install and launch on emulator (API 30)
+
+      - name: Smoke test + licensing end-to-end on emulator (API 30)
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 30
@@ -87,7 +187,6 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: |
             adb install -r "$APK_NAME"
-            adb shell pm list packages | grep com.choice.autotap
             adb shell dumpsys package com.choice.autotap | grep -E "versionName|versionCode|minSdk|targetSdk" | head -5
             adb logcat -c
             adb shell am start -W -n com.choice.autotap/.ui.MainActivity
@@ -98,16 +197,37 @@ jobs:
             adb logcat -d -b crash > crash.txt || true
             cat crash.txt
             ! grep -q "com.choice.autotap" crash.txt
+            adb uninstall com.choice.autotap
+            adb install -r e2e-app.apk
+            adb install -r e2e-test.apk
+            bash .github/scripts/emulator-license-e2e.sh
+            adb logcat -d -b crash > crash-e2e.txt || true
+            ! grep -q "com.choice.autotap" crash-e2e.txt
+
+      - name: Report
+        if: always()
+        run: |
+          { echo "## Emulator licensing end-to-end"; echo '```'; cat e2e-report.txt 2>/dev/null || echo "no report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat e2e-report.txt 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: emulator-launch-screenshot
-          path: launch.png
+          name: emulator-results
+          path: |
+            launch.png
+            e2e-report.txt
+            license-server/.e2e/server.log
           if-no-files-found: ignore
+      - if: always()
+        working-directory: license-server
+        run: scripts/local-server.sh stop
 
+  # A release is only published when every job passed AND the APK is configured for the real server.
   release:
-    needs: [build, emulator-test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/claude/brave-bohr-6scyar'
+    needs: [worker, build, emulator-test]
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/claude/brave-bohr-6scyar' &&
+      vars.LICENSE_API_URL != '' && vars.LICENSE_PUBLIC_KEY != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -122,8 +242,9 @@ jobs:
           target_commitish: ${{ github.sha }}
           name: Choice Auto Tap debug APK (build ${{ github.run_number }})
           body: |
-            Debug APK built by GitHub Actions from commit ${{ github.sha }}.
-            Unit tests passed, and the APK was installed and launched on an Android 11 (API 30) emulator.
-            Download `${{ env.APK_NAME }}` below and open it on your phone (allow "Install unknown apps").
+            Debug APK with licensing, built by GitHub Actions from commit ${{ github.sha }}.
+            License server: ${{ vars.LICENSE_API_URL }}
+            Worker tests, JVM tests, the licensing end-to-end scenario (A–F) and the emulator smoke test all passed.
+            Download `${{ env.APK_NAME }}` below; activate it with a code from the admin page.
           files: ${{ env.APK_NAME }}
           make_latest: true

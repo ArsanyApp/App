@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Choice Auto Tap key generator</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 760px; margin: 0 auto; padding: 16px; color: #1c1f24; background: #f6f7f9; }
+  @media (prefers-color-scheme: dark) { body { color: #e8eaed; background: #121417; } textarea { background:#1c1f24; color:#e8eaed; } }
+  textarea { width: 100%; font: 13px ui-monospace, monospace; padding: 8px; border-radius: 8px; border: 1px solid #9aa0a6; }
+  h2 { font-size: 16px; margin-top: 24px; }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 0; background: #1b5e20; color: #fff; cursor: pointer; }
+  .warn { color: #b3261e; }
+</style>
+</head>
+<body>
+<h1>Choice Auto Tap · license key generator</h1>
+<p>Runs entirely in this browser with WebCrypto. Nothing is sent anywhere. Generate once, then store the values as described in <code>license-server/README.md</code>.</p>
+<button id="go">Generate keys</button>
+<div id="out" hidden>
+  <h2>Server secrets <span class="warn">(private: GitHub Actions secrets / Cloudflare secrets only)</span></h2>
+  <label>LICENSE_SIGNING_KEY</label><textarea id="sign" rows="4" readonly></textarea>
+  <label>LICENSE_CODE_KEY</label><textarea id="code" rows="1" readonly></textarea>
+  <label>ADMIN_TOKEN (your admin page password)</label><textarea id="admin" rows="1" readonly></textarea>
+  <h2>Android app (public: GitHub Actions variable)</h2>
+  <label>LICENSE_PUBLIC_KEY</label><textarea id="pub" rows="3" readonly></textarea>
+</div>
+<script>
+  const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+  document.getElementById("go").onclick = async () => {
+    const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    document.getElementById("sign").value = b64(await crypto.subtle.exportKey("pkcs8", pair.privateKey));
+    document.getElementById("pub").value = b64(await crypto.subtle.exportKey("spki", pair.publicKey));
+    document.getElementById("code").value = b64(crypto.getRandomValues(new Uint8Array(32)));
+    document.getElementById("admin").value = b64(crypto.getRandomValues(new Uint8Array(24))).replace(/\+/g, "-").replace(/\//g, "_");
+    document.getElementById("out").hidden = false;
+  };
+</script>
+</body>
+</html>
