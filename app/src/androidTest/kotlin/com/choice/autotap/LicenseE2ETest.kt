@@ -39,11 +39,36 @@ class LicenseE2ETest {
 
     private fun string(id: Int, vararg a: Any) = context.getString(id, *a)
 
-    private fun waitForHome() = rule.waitUntil(timeout) {
-        rule.onAllNodes(hasText("New macro")).fetchSemanticsNodes().isNotEmpty()
+    /** Explains a failed wait: license state + everything on screen. */
+    private fun diagnostics(): String {
+        val s = license.status.value
+        val texts = runCatching {
+            rule.onAllNodes(androidx.compose.ui.test.isRoot()).fetchSemanticsNodes().joinToString(" | ") { root ->
+                root.children.flatMap { collectText(it) }.joinToString(" / ")
+            }
+        }.getOrDefault("?")
+        return "license=${s.state} error=${s.error} retryAfter=${s.retryAfterSeconds} screen=[$texts]"
     }
 
-    private fun waitForTag(tag: String) = rule.waitUntil(timeout) {
+    private fun collectText(node: androidx.compose.ui.semantics.SemanticsNode): List<String> {
+        val own = node.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)?.map { it.text }.orEmpty() +
+            node.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.EditableText)?.let { listOf("[${it.text}]") }.orEmpty()
+        return own + node.children.flatMap { collectText(it) }
+    }
+
+    private fun waitOrExplain(what: String, condition: () -> Boolean) {
+        try {
+            rule.waitUntil(timeout, condition)
+        } catch (e: Throwable) {
+            throw AssertionError("Timed out waiting for $what. ${diagnostics()}", e)
+        }
+    }
+
+    private fun waitForHome() = waitOrExplain("Home screen") {
+        rule.onAllNodes(hasText("New macro", substring = true)).fetchSemanticsNodes().isNotEmpty()
+    }
+
+    private fun waitForTag(tag: String) = waitOrExplain(tag) {
         rule.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().isNotEmpty()
     }
 

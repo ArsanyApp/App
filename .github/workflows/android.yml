@@ -209,6 +209,8 @@ jobs:
         run: |
           { echo "## Emulator licensing end-to-end"; echo '```'; cat e2e-report.txt 2>/dev/null || echo "no report"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           cat e2e-report.txt 2>/dev/null || true
+          echo "--- license server requests (no secrets are logged) ---"
+          grep -E "wrangler:|event|error|Error" license-server/.e2e/server.log | grep -v "Request.cf" | tail -60 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
