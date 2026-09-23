@@ -7,6 +7,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
 import com.choice.autotap.appGraph
+import com.choice.autotap.R
 import com.choice.autotap.gesture.AccessibilityActionExecutor
 import com.choice.autotap.gesture.ClickRecorder
 import com.choice.autotap.gesture.GestureGuard
@@ -25,6 +26,7 @@ import com.choice.autotap.ui.MainActivity
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.text.DateFormat
@@ -59,6 +61,32 @@ class AutoTapAccessibilityService : AccessibilityService(), BubbleListener, Mark
         scope.launch {
             AutoTapBridge.activeMacroId.collectLatest { refreshIdle() }
         }
+        // Licensing gate: stop a run if the license stops being valid, and re-verify periodically
+        // (the controller itself only contacts the server when a check is due, at most every 12 h).
+        scope.launch {
+            appGraph.license.status.collect { s ->
+                if (!s.state.isUsable && isPlaying) {
+                    stopPlayback()
+                    toast(getString(R.string.license_stopped_toast))
+                }
+            }
+        }
+        scope.launch {
+            while (true) {
+                runCatching { appGraph.license.refreshIfDue() }
+                delay(LICENSE_CHECK_INTERVAL_MS)
+            }
+        }
+    }
+
+    /** True if the app is licensed; otherwise explains why and opens the activation screen. */
+    private fun requireLicense(): Boolean {
+        val license = appGraph.license
+        license.reevaluate()
+        if (license.isUsable) return true
+        toast(getString(R.string.license_required_toast))
+        onOpenApp()
+        return false
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -118,6 +146,7 @@ class AutoTapAccessibilityService : AccessibilityService(), BubbleListener, Mark
     }
 
     fun startPlayback(macro: Macro) {
+        if (!requireLicense()) return
         if (isPlaying) return toast("A macro is already running")
         if (macro.steps.none { it.enabled }) return toast("This macro has no enabled steps")
         if (recorder.isRecording) recorder.stop()
@@ -167,6 +196,7 @@ class AutoTapAccessibilityService : AccessibilityService(), BubbleListener, Mark
 
     /** Opens the on-screen marker editor for [macroId], or a brand new macro when null. */
     fun openMarkerEditor(macroId: Long?) {
+        if (!requireLicense()) return
         if (isPlaying) return toast("Stop the running macro first")
         scope.launch {
             val id = macroId ?: appGraph.macros.create(defaultName())
@@ -213,6 +243,7 @@ class AutoTapAccessibilityService : AccessibilityService(), BubbleListener, Mark
 
     override fun onRecordToggle() {
         if (recorder.isRecording) finishRecording() else {
+            if (!requireLicense()) return
             recorder.start()
             bubble?.setMode(ControlBubble.Mode.Recording(0))
             toast("Recording: use the app normally, then press ■")
@@ -277,5 +308,9 @@ class AutoTapAccessibilityService : AccessibilityService(), BubbleListener, Mark
 
     private fun toast(msg: String) {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    }
+
+    private companion object {
+        const val LICENSE_CHECK_INTERVAL_MS = 60L * 60 * 1000
     }
 }

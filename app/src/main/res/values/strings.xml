@@ -4,4 +4,30 @@
     <string name="accessibility_label">Choice Auto Tap</string>
     <string name="accessibility_description">Lets Choice Auto Tap perform the taps, long-presses, swipes and text input of the macros you build, show its floating controls, record your clicks when you ask it to, and stop a run when you press volume-down 3 times. It only acts while you run, edit or record a macro.</string>
     <string name="notification_channel">Macro playback</string>
+
+    <!-- Licensing -->
+    <string name="license_app_title">CHOICE AUTO TAP</string>
+    <string name="license_activate_title">Activate app</string>
+    <string name="license_enter_code">Enter your activation code</string>
+    <string name="license_code_placeholder">CAT-XXXX-XXXX-XXXX</string>
+    <string name="license_activate_button">Activate</string>
+    <string name="license_paste">Paste</string>
+    <string name="license_activating">Activating…</string>
+    <string name="license_error_malformed">This doesn’t look like a valid code. Check it and try again.</string>
+    <string name="license_error_invalid">This activation code is not valid.</string>
+    <string name="license_error_already_used">Activation code already used.</string>
+    <string name="license_error_rate_limited">Too many attempts. Please wait %1$d seconds and try again.</string>
+    <string name="license_error_no_internet">No internet connection. Connect and try again.</string>
+    <string name="license_error_server">The activation server could not be reached. Try again later.</string>
+    <string name="license_error_not_configured">This copy of the app is not set up for activation. Please contact the software owner.</string>
+    <string name="license_revoked_title">License revoked</string>
+    <string name="license_revoked_body">Please contact the software owner.</string>
+    <string name="license_enter_new_code">Enter a new code</string>
+    <string name="license_verify_title">Connect to the internet</string>
+    <string name="license_verify_body">Choice Auto Tap needs to verify its license. It can run offline for up to 7 days after each successful check.</string>
+    <string name="license_retry">Try again</string>
+    <string name="license_checking">Checking…</string>
+    <string name="license_back">Back</string>
+    <string name="license_required_toast">Activate Choice Auto Tap first.</string>
+    <string name="license_stopped_toast">License not valid. Playback stopped.</string>
 </resources>

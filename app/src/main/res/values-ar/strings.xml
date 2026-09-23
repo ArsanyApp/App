@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Arabic translations of the licensing screens. -->
+<resources>
+    <string name="license_app_title">CHOICE AUTO TAP</string>
+    <string name="license_activate_title">تفعيل التطبيق</string>
+    <string name="license_enter_code">أدخل رمز التفعيل</string>
+    <string name="license_code_placeholder">CAT-XXXX-XXXX-XXXX</string>
+    <string name="license_activate_button">تفعيل</string>
+    <string name="license_paste">لصق</string>
+    <string name="license_activating">جارٍ التفعيل…</string>
+    <string name="license_error_malformed">يبدو أن هذا الرمز غير صحيح. تحقق منه وحاول مرة أخرى.</string>
+    <string name="license_error_invalid">رمز التفعيل هذا غير صالح.</string>
+    <string name="license_error_already_used">رمز التفعيل مستخدم بالفعل.</string>
+    <string name="license_error_rate_limited">محاولات كثيرة جدًا. يرجى الانتظار %1$d ثانية ثم المحاولة مرة أخرى.</string>
+    <string name="license_error_no_internet">لا يوجد اتصال بالإنترنت. اتصل بالإنترنت ثم حاول مرة أخرى.</string>
+    <string name="license_error_server">تعذّر الوصول إلى خادم التفعيل. حاول مرة أخرى لاحقًا.</string>
+    <string name="license_error_not_configured">هذه النسخة من التطبيق غير مهيأة للتفعيل. يرجى التواصل مع مالك البرنامج.</string>
+    <string name="license_revoked_title">تم إلغاء الترخيص</string>
+    <string name="license_revoked_body">يرجى التواصل مع مالك البرنامج.</string>
+    <string name="license_enter_new_code">إدخال رمز جديد</string>
+    <string name="license_verify_title">اتصل بالإنترنت</string>
+    <string name="license_verify_body">يحتاج التطبيق إلى التحقق من الترخيص. يمكنه العمل دون اتصال لمدة تصل إلى 7 أيام بعد كل تحقق ناجح.</string>
+    <string name="license_retry">حاول مرة أخرى</string>
+    <string name="license_checking">جارٍ التحقق…</string>
+    <string name="license_back">رجوع</string>
+    <string name="license_required_toast">يرجى تفعيل التطبيق أولًا.</string>
+    <string name="license_stopped_toast">الترخيص غير صالح. تم إيقاف التشغيل.</string>
+</resources>
