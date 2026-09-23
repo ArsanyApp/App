@@ -1,8 +1,12 @@
 package com.choice.autotap
 
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -43,17 +47,17 @@ class LicenseE2ETest {
     private fun diagnostics(): String {
         val s = license.status.value
         val texts = runCatching {
-            rule.onAllNodes(androidx.compose.ui.test.isRoot()).fetchSemanticsNodes().joinToString(" | ") { root ->
+            rule.onAllNodes(isRoot()).fetchSemanticsNodes().joinToString(" | ") { root ->
                 root.children.flatMap { collectText(it) }.joinToString(" / ")
             }
         }.getOrDefault("?")
         return "license=${s.state} error=${s.error} retryAfter=${s.retryAfterSeconds} screen=[$texts]"
     }
 
-    private fun collectText(node: androidx.compose.ui.semantics.SemanticsNode): List<String> {
-        val own = node.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)?.map { it.text }.orEmpty() +
-            node.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.EditableText)?.let { listOf("[${it.text}]") }.orEmpty()
-        return own + node.children.flatMap { collectText(it) }
+    private fun collectText(node: SemanticsNode): List<String> {
+        val texts: List<String> = node.config.getOrNull(SemanticsProperties.Text).orEmpty().map { t -> t.text }
+        val edit: List<String> = node.config.getOrNull(SemanticsProperties.EditableText)?.let { t -> listOf("[" + t.text + "]") }.orEmpty()
+        return texts + edit + node.children.flatMap { child -> collectText(child) }
     }
 
     private fun waitOrExplain(what: String, condition: () -> Boolean) {
