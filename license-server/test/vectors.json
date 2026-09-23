@@ -1,0 +1,106 @@
+{
+  "alphabet": "0123456789ABCDEFGHJKMNPQRSTVWXYZ",
+  "generated": [
+    {
+      "bytes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "code": "CAT-0000-0000-0000"
+    },
+    {
+      "bytes": [
+        255,
+        254,
+        253,
+        252,
+        251,
+        250,
+        249,
+        248,
+        247,
+        246,
+        245
+      ],
+      "code": "CAT-ZYXW-VTSR-QPNE"
+    },
+    {
+      "bytes": [
+        7,
+        20,
+        4,
+        21,
+        29,
+        9,
+        2,
+        19,
+        26,
+        3,
+        13
+      ],
+      "code": "CAT-7M4N-X92K-T3DD"
+    },
+    {
+      "bytes": [
+        31,
+        63,
+        95,
+        127,
+        159,
+        191,
+        223,
+        255,
+        1,
+        33,
+        65
+      ],
+      "code": "CAT-ZZZZ-ZZZZ-111S"
+    }
+  ],
+  "valid": [
+    {
+      "input": "CAT-7M4N-X92K-T3DD",
+      "body": "7M4NX92KT3DD"
+    },
+    {
+      "input": "cat-7m4n-x92k-t3dd",
+      "body": "7M4NX92KT3DD"
+    },
+    {
+      "input": "7M4NX92KT3DD",
+      "body": "7M4NX92KT3DD"
+    },
+    {
+      "input": "  CAT 7M4N X92K T3DD  ",
+      "body": "7M4NX92KT3DD"
+    },
+    {
+      "input": "cat7M4NX92KT3DD",
+      "body": "7M4NX92KT3DD"
+    },
+    {
+      "input": "CAT-OOOO-OOOO-OOOO",
+      "body": "000000000000"
+    }
+  ],
+  "invalid": [
+    "",
+    "CAT",
+    "CAT-1234-5678",
+    "CAT-7M4N-X92K-T3DDX",
+    "CAT-7M4N-X92K-T3DE",
+    "CAT-7U4N-X92K-T3DD",
+    "CAT-!!!!-????-****",
+    "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "DOG-7M4N-X92K-T3DD"
+  ]
+}
