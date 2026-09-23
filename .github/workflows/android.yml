@@ -5,6 +5,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+env:
+  APK_NAME: ChoiceAutoTap-debug.apk
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -14,12 +20,110 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0 platform-tools"
       - uses: gradle/actions/setup-gradle@v4
+
       - name: Unit tests
         run: ./gradlew test --stacktrace
+
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: ./gradlew clean :app:assembleDebug --stacktrace
+
+      - name: Verify APK
+        run: |
+          set -euo pipefail
+          SRC=$(ls app/build/outputs/apk/debug/*.apk)
+          cp "$SRC" "$APK_NAME"
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          {
+            echo "## APK verification"
+            echo '```'
+            echo "Source: $SRC"
+            ls -l "$APK_NAME"
+            file "$APK_NAME"
+            sha256sum "$APK_NAME"
+            echo
+            "$BT/aapt2" dump badging "$APK_NAME" | grep -E "^(package|sdkVersion|targetSdkVersion|application-label|launchable-activity|uses-permission)"
+            echo
+            "$BT/apksigner" verify --verbose --print-certs "$APK_NAME" | head -20
+            echo
+            echo "App classes in dex:"
+            unzip -p "$APK_NAME" 'classes*.dex' | grep -a -o -E "Lcom/choice/autotap/(ui/MainActivity|service/AutoTapAccessibilityService|service/PlaybackService|gesture/AccessibilityActionExecutor|overlay/ControlBubble|player/MacroPlayer|model/Macro);" | sort -u
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          test -s "$APK_NAME"
+          "$BT/aapt2" dump badging "$APK_NAME" | grep -q "package: name='com.choice.autotap'"
+          "$BT/apksigner" verify "$APK_NAME"
+
       - uses: actions/upload-artifact@v4
         with:
           name: choice-auto-tap-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: ${{ env.APK_NAME }}
+          if-no-files-found: error
+
+  emulator-test:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: choice-auto-tap-debug-apk
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install and launch on emulator (API 30)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: |
+            adb install -r "$APK_NAME"
+            adb shell pm list packages | grep com.choice.autotap
+            adb shell dumpsys package com.choice.autotap | grep -E "versionName|versionCode|minSdk|targetSdk" | head -5
+            adb logcat -c
+            adb shell am start -W -n com.choice.autotap/.ui.MainActivity
+            sleep 8
+            adb shell pidof com.choice.autotap
+            adb shell dumpsys activity activities | grep -E "mResumedActivity|topResumedActivity" | head -3
+            adb shell screencap -p /sdcard/launch.png && adb pull /sdcard/launch.png launch.png
+            adb logcat -d -b crash > crash.txt || true
+            cat crash.txt
+            ! grep -q "com.choice.autotap" crash.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: emulator-launch-screenshot
+          path: launch.png
+          if-no-files-found: ignore
+
+  release:
+    needs: [build, emulator-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/claude/brave-bohr-6scyar'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: choice-auto-tap-debug-apk
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-build-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Choice Auto Tap debug APK (build ${{ github.run_number }})
+          body: |
+            Debug APK built by GitHub Actions from commit ${{ github.sha }}.
+            Unit tests passed, and the APK was installed and launched on an Android 11 (API 30) emulator.
+            Download `${{ env.APK_NAME }}` below and open it on your phone (allow "Install unknown apps").
+          files: ${{ env.APK_NAME }}
+          make_latest: true
