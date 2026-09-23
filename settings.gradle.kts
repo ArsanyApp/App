@@ -25,6 +25,7 @@ rootProject.name = "ChoiceAutoTap"
 // Pure Kotlin/JVM modules (no Android dependency, fully unit-tested).
 include(":macro-model")
 include(":macro-player")
+include(":license-core")
 // Android modules.
 include(":gesture-engine")
 include(":overlay-ui")
